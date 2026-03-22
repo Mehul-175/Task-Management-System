@@ -1,6 +1,8 @@
 import User from "../models/user.model.js";
-import crypto from "crypto";
+import Company from "../models/company.model.js";
+import Plan from "../models/plan.model.js";
 import bcrypt from "bcryptjs";
+import Razorpay from "razorpay";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -9,6 +11,10 @@ import {
 import { loginSchema, registerSchema } from "../validations/auth.validation.js";
 
 const REFRESH_TTL = Number(process.env.REFRESH_TTL) * 24 * 60 * 60 * 1000;
+const razorpay = new Razorpay({
+  key_id: process.env.RAZOR_KEY,
+  key_secret: process.env.RAZOR_SECRET,
+});
 export const register = async (req, res) => {
   try {
     const { value, error } = registerSchema.validate(req.body);
@@ -19,33 +25,79 @@ export const register = async (req, res) => {
         .json({ message: "Invalid Input", details: error.details[0].message });
     }
 
-    const { username, firstname, middlename, lastname, email, password } =
-      value;
+    const { adminDetails: admin, companyDetails: company, planId } = value;
 
     //Checking conflict
-    const existingEmail = await User.findOne({ email });
+    const existingEmail = await User.findOne({ email: admin.email });
     if (existingEmail) {
       return res
         .status(409)
         .json({ message: "This email is already registered" });
     }
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ username: admin.username });
     if (existingUser) {
       return res
         .status(409)
         .json({ message: "This username is already taken" });
     }
+    const existingCompany = await Company.findOne({ name: company.name });
+    if (existingCompany) {
+      return res
+        .status(409)
+        .json({ message: "Company with this name is already registered" });
+    }
+
+    const selectedPlan = await Plan.findById(planId);
+    if (!selectedPlan) {
+      return res.status(404).json({ message: "Selected plan not found" });
+    }
 
     //Hashing password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(admin.password, 10);
 
+    //Create admin and his company
     const newUser = await User.create({
-      username,
-      email,
-      firstname,
-      middlename,
-      lastname,
+      username: admin.username,
+      email: admin.email,
+      firstname: admin.firstname,
+      middlename: admin.middlename,
+      lastname: admin.lastname,
       password: hashedPassword,
+      status: "INACTIVE",
+      system_role: "ADMIN",
+    });
+
+    const newCompany = await Company.create({
+      name: company.name,
+      created_by: newUser._id,
+      plan_id: planId,
+      status: "PENDING",
+    });
+
+    newUser.company_id = newCompany._id;
+    await newUser.save();
+
+    //Payment for plan using Razorpay
+
+    const paymentLink = await razorpay.paymentLink.create({
+      amount: selectedPlan.price * 100, // Amount in paise
+      currency: "INR",
+      accept_partial: false,
+      description: `Subscription for ${selectedPlan.name} plan`,
+      customer: {
+        name: `${newUser.firstname} ${newUser.lastname}`,
+        email: newUser.email,
+      },
+      notify: { email: true },
+      reminder_enable: true,
+
+      notes: {
+        company_id: newCompany._id.toString(),
+        admin_id: newUser._id.toString(),
+        plan_id: selectedPlan._id.toString(),
+      },
+      callback_url: "http://localhost:5173/payment-success",
+      callback_method: "get",
     });
 
     //Generate the tokens
@@ -69,7 +121,7 @@ export const register = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      path: "/auth/refresh",
+      path: "/api/auth/refresh",
     });
 
     res.status(201).json({
@@ -85,9 +137,12 @@ export const register = async (req, res) => {
         company: newUser.company_id,
       },
       accessToken,
+      checkout_url: paymentLink.short_url,
     });
   } catch (error) {
-    return res.status(500).json({ message: "Error creating the user", error });
+    return res
+      .status(500)
+      .json({ message: "Error creating the user", error: error.message });
   }
 };
 
@@ -110,6 +165,12 @@ export const login = async (req, res) => {
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
+
+    //check if the user is active
+    if (user.status !== "ACTIVE") {
+      return res.status(403).json({ message: "Account not active" });
+    }
+
 
     //check the password
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
@@ -139,7 +200,7 @@ export const login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      path: "/auth/refresh",
+      path: "api/auth/refresh",
     });
 
     res.status(200).json({
@@ -165,45 +226,75 @@ export const refreshAccessToken = async (req, res) => {
   try {
     const token = req.cookies.refreshToken;
 
+    if (!token) {
+      return res.status(401).json({ message: "Refresh token missing" });
+    }
+
     const hash = hashToken(token);
 
-    const user = await User.findOne({
-      refreshtoken: hash,
-    });
+    const user = await User.findOne({ refreshtoken: hash });
 
     if (!user) {
-      return res.status(403).send("invalid refresh token");
+      res.clearCookie("refreshToken", { path: "/auth/refresh" });
+      return res.status(403).json({ message: "Invalid refresh token" });
     }
 
     if (user.refresh_expiry < Date.now()) {
-      return res.status(403).send("expired refresh token");
+      res.clearCookie("refreshToken", { path: "/auth/refresh" });
+      return res.status(403).json({ message: "Refresh token expired" });
     }
 
-    const newAccessToken = generateAccessToken({
+    const accessToken = generateAccessToken({
       id: user.id,
       role: user.system_role,
       jobrole: user.jobrole_id,
       company: user.company_id,
     });
+
     const newRefreshToken = generateRefreshToken();
 
     user.refreshtoken = hashToken(newRefreshToken);
     user.refresh_expiry = Date.now() + REFRESH_TTL;
-    user.save();
 
-    //Set cookies
+    await user.save();
+
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      path: "/auth/refresh",
+      path: "api/auth/refresh",
     });
 
-    res.status(200).json({
-      message: "User logged in Successfully",
-      accessToken: newAccessToken,
+    res.json({
+      message: "Access token refreshed successfully",
+      accessToken,
     });
   } catch (error) {
-    res.status(500).json({ message: "Error refreshing token" });
+    res.status(500).json({
+      message: "Error refreshing token",
+      error: error.message,
+    });
+  }
+};
+
+export const logout = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    await User.findByIdAndUpdate(userId, {
+      $unset: {
+        refreshtoken: 1,
+        refresh_expiry: 1,
+      },
+    });
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/auth/refresh",
+    });
+
+    return res.status(200).json({ message: "Logged out successfully" });
+  } catch (error) {
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 };

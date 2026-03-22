@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
+    status: {
+      type: String,
+      enum: ["INACTIVE", "ACTIVE", "SUSPENDED"],
+      default: "INACTIVE"
+    },
     system_role: {
       type: String,
       enum: ["SUPER_ADMIN", "ADMIN", "USER"],
