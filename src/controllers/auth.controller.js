@@ -100,9 +100,12 @@ export const register = async (req, res) => {
       callback_method: "get",
     });
 
+    newCompany.payment_link_id = paymentLink.id;
+    await newCompany.save();
+
     //Generate the tokens
     const accessToken = generateAccessToken({
-      id: newUser.id,
+      id: newUser._id, // Use _id for MongoDB documents
       role: newUser.system_role,
       jobrole: newUser.jobrole_id,
       company: newUser.company_id,
@@ -171,6 +174,17 @@ export const login = async (req, res) => {
       return res.status(403).json({ message: "Account not active" });
     }
 
+    const company = await Company.findById(user.company_id);
+
+    if (user.system_role !== "SUPER_ADMIN") {
+      if (!company || company.status !== "ACTIVE") {
+        return res.status(403).json({ message: "Company is not active" });
+      }
+
+      if (company.plan_expiry && new Date(company.plan_expiry) < new Date()) {
+        return res.status(403).json({ message: "Company plan has expired" });
+      }
+    }
 
     //check the password
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
