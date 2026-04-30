@@ -25,7 +25,7 @@ export const createSubUser = async (req, res) => {
 
     const currentUserCount = await User.countDocuments({
       company_id: adminCompanyId,
-      isDeleted: false,
+      isDeleted: { $ne: true },
     });
 
     if (currentUserCount >= company.plan_id.max_users) {
@@ -70,7 +70,7 @@ export const getCompanyUsers = async (req, res) => {
   try {
     const users = await User.find({
       company_id: req.user.company_id,
-      isDeleted: false,
+      isDeleted: { $ne: true },
       system_role: "USER",
     }).select("-password");
 
@@ -86,7 +86,7 @@ export const updateSubUser = async (req, res) => {
     if (error) return res.status(400).json({ message: error.details[0].message });
 
     const updatedUser = await User.findOneAndUpdate(
-      { _id: req.params.id, company_id: req.user.company_id, isDeleted: false, system_role: "USER" },
+      { _id: req.params.id, company_id: req.user.company_id, isDeleted: { $ne: true }, system_role: "USER" },
       value,
       { new: true }
     ).select("-password");
@@ -101,7 +101,7 @@ export const updateSubUser = async (req, res) => {
 export const deleteSubUser = async (req, res) => {
   try {
     const user = await User.findOneAndUpdate(
-      { _id: req.params.id, company_id: req.user.company_id, isDeleted: false, system_role: "USER" },
+      { _id: req.params.id, company_id: req.user.company_id, isDeleted: { $ne: true }, system_role: "USER" },
       { isDeleted: true, status: "INACTIVE" },
       { new: true }
     );

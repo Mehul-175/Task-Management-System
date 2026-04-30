@@ -21,8 +21,17 @@ export const createPlan = async (req, res) => {
 
 export const getAllPlans = async (req, res) => {
   try {
-    const query = req.user.system_role === "SUPER_ADMIN" ? {} : { status: "ACTIVE" };
-    const plans = await Plan.find(query).sort({ createdAt: -1 });
+    const plans = await Plan.find({ status: "ACTIVE" }).sort({ createdAt: -1 });
+    return res.status(200).json(plans);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+
+export const getAllPlansAdmin = async (req, res) => {
+  try {
+    const plans = await Plan.find({}).sort({ createdAt: -1 });
     return res.status(200).json(plans);
   } catch (error) {
     return res.status(500).json({ message: error.message });

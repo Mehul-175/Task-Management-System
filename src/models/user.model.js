@@ -38,6 +38,10 @@ const userSchema = new mongoose.Schema(
       enum: ["INACTIVE", "ACTIVE", "SUSPENDED"],
       default: "INACTIVE"
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
     system_role: {
       type: String,
       enum: ["SUPER_ADMIN", "ADMIN", "USER"],
