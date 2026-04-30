@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* Add this to your index.css or global styles */
+/* html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden; 
+}
+
+
+.premium-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.premium-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.premium-scroll::-webkit-scrollbar-thumb {
+  background: #e2e8f0; 
+  border-radius: 100px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.premium-scroll::-webkit-scrollbar-thumb:hover {
+  background: #cbd5e1; 
+  background-clip: content-box;
+} 
+*/
