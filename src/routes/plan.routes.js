@@ -6,20 +6,22 @@ import {
   updatePlan,
   swapPlans,
   deletePlan,
+  getAllPlansAdmin,
 } from "../controllers/plan.controller.js";
 import authMiddleware from "../middlewares/auth.middleware.js";
 import roleMiddleware from "../middlewares/role.middleware.js";
 
 const router = express.Router();
 
-router.use(authMiddleware);
 
 router.get("/", getAllPlans);
+router.get("/admin/plans", authMiddleware, roleMiddleware("SUPER_ADMIN"), getAllPlansAdmin);
 router.get("/:id", getPlanById);
 
-router.post("/", roleMiddleware("SUPER_ADMIN"), createPlan);
-router.put("/:id", roleMiddleware("SUPER_ADMIN"), updatePlan);
-router.patch("/swap/status", roleMiddleware("SUPER_ADMIN"), swapPlans);
-router.delete("/:id", roleMiddleware("SUPER_ADMIN"), deletePlan);
+
+router.post("/", authMiddleware, roleMiddleware("SUPER_ADMIN"), createPlan);
+router.put("/:id", authMiddleware, roleMiddleware("SUPER_ADMIN"), updatePlan);
+router.patch("/swap/status", authMiddleware, roleMiddleware("SUPER_ADMIN"), swapPlans);
+router.delete("/:id", authMiddleware, roleMiddleware("SUPER_ADMIN"), deletePlan);
 
 export default router;
